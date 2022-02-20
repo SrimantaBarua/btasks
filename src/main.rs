@@ -19,7 +19,6 @@ enum State {
 
 #[derive(Serialize, Deserialize, Debug)]
 enum LogEntryType {
-    Opened,
     Comment(String),
     StateChangedTo(State),
 }
@@ -43,6 +42,7 @@ struct Task {
 #[derive(Serialize, Deserialize, Debug)]
 struct Project {
     name: String,
+    description: String,
     id: usize,
     tasks: Vec<Task>,
     next_task_id: usize,
@@ -81,7 +81,7 @@ impl AppState {
 }
 
 #[derive(Serialize, Debug)]
-struct ProjectSummary {
+struct ProjectPeek {
     id: usize,
     name: String,
 }
@@ -95,7 +95,7 @@ async fn list_projects(
         .database
         .projects
         .iter()
-        .map(|project| ProjectSummary {
+        .map(|project| ProjectPeek {
             id: project.id,
             name: project.name.clone(),
         })
@@ -111,13 +111,13 @@ struct ListTasksRequest {
 }
 
 #[derive(Serialize, Debug)]
-struct TaskSummary {
+struct TaskPeek {
     id: usize,
     title: String,
     state: State,
 }
 
-async fn list_tasks(
+async fn project_details(
     request: Request<Body>,
     app_state: Arc<Mutex<AppState>>,
 ) -> Result<Response<Body>, Box<dyn std::error::Error>> {
@@ -138,14 +138,19 @@ async fn list_tasks(
     let tasks = project
         .tasks
         .iter()
-        .map(|task| TaskSummary {
+        .map(|task| TaskPeek {
             id: task.id,
             title: task.title.clone(),
             state: task.state,
         })
         .collect::<Vec<_>>();
     Ok(Response::new(Body::from(
-        json!({ "tasks": tasks }).to_string(),
+        json!({
+            "name": project.name.clone(),
+            "id": project.id,
+            "description": project.description.clone(),
+            "tasks": tasks
+        }).to_string(),
     )))
 }
 
@@ -174,7 +179,7 @@ async fn request_handler(
 ) -> Result<Response<Body>, hyper::Error> {
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/list_projects") => wrap_error(list_projects(request, app_state).await),
-        (&Method::GET, "/list_tasks") => wrap_error(list_tasks(request, app_state).await),
+        (&Method::GET, "/project_details") => wrap_error(project_details(request, app_state).await),
         _ => {
             let mut response = Response::new(Body::empty());
             *response.status_mut() = StatusCode::NOT_FOUND;
