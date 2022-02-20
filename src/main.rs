@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::net::SocketAddr;
-use std::os::unix::fs::chroot;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -127,7 +126,7 @@ impl AppState {
             .parent()
             .expect("Expected path to be absolute");
         std::fs::create_dir_all(dirname)?;
-        serde_json::to_writer(File::create(database_path)?, &self.database)?;
+        serde_json::to_writer_pretty(File::create(database_path)?, &self.database)?;
         Ok(())
     }
 
@@ -224,6 +223,30 @@ async fn task_details(
 }
 
 #[derive(Deserialize, Debug)]
+struct PostTaskStateChange {
+    project_id: usize,
+    task_id: usize,
+    new_state: State,
+}
+
+async fn post_task_state(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let request = serde_json::from_slice::<PostTaskStateChange>(&full_body)?;
+    let mut app = app_state.lock().unwrap();
+    let project = app.database.find_project_by_id_mut(request.project_id)?;
+    let task = project.find_task_by_id_mut(request.task_id)?;
+    task.new_log_entry(LogEntryType::StateChangedTo(request.new_state));
+    task.state = request.new_state;
+    app.flush()?;
+    Ok(Response::new(Body::from(
+        json!({"status": 200, "description": "OK"}).to_string(),
+    )))
+}
+
+#[derive(Deserialize, Debug)]
 struct PostTaskCommentRequest {
     project_id: usize,
     task_id: usize,
@@ -273,6 +296,7 @@ async fn request_handler(
         (&Method::GET, "/") => wrap_error(list_projects(request, app_state).await),
         (&Method::GET, "/project") => wrap_error(project_details(request, app_state).await),
         (&Method::GET, "/task") => wrap_error(task_details(request, app_state).await),
+        (&Method::POST, "/task/state") => wrap_error(post_task_state(request, app_state).await),
         (&Method::POST, "/task/comment") => wrap_error(post_task_comment(request, app_state).await),
         _ => {
             let mut response = Response::new(Body::empty());
