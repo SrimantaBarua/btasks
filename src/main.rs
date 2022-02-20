@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::net::SocketAddr;
+use std::os::unix::fs::chroot;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -39,6 +40,16 @@ struct Task {
     state: State,
 }
 
+impl Task {
+    fn new_log_entry(&mut self, entry_type: LogEntryType) {
+        let timestamp = chrono::Utc::now();
+        self.log.push(LogEntry {
+            timestamp,
+            entry_type,
+        });
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct Project {
     name: String,
@@ -56,6 +67,14 @@ impl Project {
             .map_err(|_| format!("Could not find task with ID: {}", id))?;
         Ok(&self.tasks[task_index])
     }
+
+    fn find_task_by_id_mut(&mut self, id: usize) -> Result<&mut Task, Box<dyn std::error::Error>> {
+        let task_index = self
+            .tasks
+            .binary_search_by_key(&id, |task| task.id)
+            .map_err(|_| format!("Could not find task with ID: {}", id))?;
+        Ok(&mut self.tasks[task_index])
+    }
 }
 
 #[derive(Default, Serialize, Deserialize, Debug)]
@@ -71,6 +90,17 @@ impl Database {
             .binary_search_by_key(&id, |project| project.id)
             .map_err(|_| format!("Could not find project with ID: {}", id))?;
         Ok(&self.projects[project_index])
+    }
+
+    fn find_project_by_id_mut(
+        &mut self,
+        id: usize,
+    ) -> Result<&mut Project, Box<dyn std::error::Error>> {
+        let project_index = self
+            .projects
+            .binary_search_by_key(&id, |project| project.id)
+            .map_err(|_| format!("Could not find project with ID: {}", id))?;
+        Ok(&mut self.projects[project_index])
     }
 }
 
@@ -89,6 +119,16 @@ impl AppState {
         File::open(Self::get_database_path())
             .ok()
             .and_then(|file| serde_json::from_reader(file).ok())
+    }
+
+    fn flush(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let database_path = Self::get_database_path();
+        let dirname = database_path
+            .parent()
+            .expect("Expected path to be absolute");
+        std::fs::create_dir_all(dirname)?;
+        serde_json::to_writer(File::create(database_path)?, &self.database)?;
+        Ok(())
     }
 
     fn get_database_path() -> PathBuf {
@@ -142,11 +182,9 @@ async fn project_details(
     app_state: Arc<Mutex<AppState>>,
 ) -> Result<Response<Body>, Box<dyn std::error::Error>> {
     let full_body = hyper::body::to_bytes(request.into_body()).await?;
-    let project_details_request = serde_json::from_slice::<ProjectDetailsRequest>(&full_body)?;
+    let request = serde_json::from_slice::<ProjectDetailsRequest>(&full_body)?;
     let app = app_state.lock().unwrap();
-    let project = app
-        .database
-        .find_project_by_id(project_details_request.project_id)?;
+    let project = app.database.find_project_by_id(request.project_id)?;
     let tasks = project
         .tasks
         .iter()
@@ -178,13 +216,34 @@ async fn task_details(
     app_state: Arc<Mutex<AppState>>,
 ) -> Result<Response<Body>, Box<dyn std::error::Error>> {
     let full_body = hyper::body::to_bytes(request.into_body()).await?;
-    let task_details_request = serde_json::from_slice::<TaskDetailsRequest>(&full_body)?;
+    let request = serde_json::from_slice::<TaskDetailsRequest>(&full_body)?;
     let app = app_state.lock().unwrap();
-    let project = app
-        .database
-        .find_project_by_id(task_details_request.project_id)?;
-    let task = project.find_task_by_id(task_details_request.task_id)?;
+    let project = app.database.find_project_by_id(request.project_id)?;
+    let task = project.find_task_by_id(request.task_id)?;
     Ok(Response::new(Body::from(serde_json::to_string(task)?)))
+}
+
+#[derive(Deserialize, Debug)]
+struct PostTaskCommentRequest {
+    project_id: usize,
+    task_id: usize,
+    comment: String,
+}
+
+async fn post_task_comment(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let request = serde_json::from_slice::<PostTaskCommentRequest>(&full_body)?;
+    let mut app = app_state.lock().unwrap();
+    let project = app.database.find_project_by_id_mut(request.project_id)?;
+    let task = project.find_task_by_id_mut(request.task_id)?;
+    task.new_log_entry(LogEntryType::Comment(request.comment));
+    app.flush()?;
+    Ok(Response::new(Body::from(
+        json!({"status": 200, "description": "OK"}).to_string(),
+    )))
 }
 
 fn wrap_error(
@@ -211,9 +270,10 @@ async fn request_handler(
     app_state: Arc<Mutex<AppState>>,
 ) -> Result<Response<Body>, hyper::Error> {
     match (request.method(), request.uri().path()) {
-        (&Method::GET, "/list_projects") => wrap_error(list_projects(request, app_state).await),
-        (&Method::GET, "/project_details") => wrap_error(project_details(request, app_state).await),
-        (&Method::GET, "/task_details") => wrap_error(task_details(request, app_state).await),
+        (&Method::GET, "/") => wrap_error(list_projects(request, app_state).await),
+        (&Method::GET, "/project") => wrap_error(project_details(request, app_state).await),
+        (&Method::GET, "/task") => wrap_error(task_details(request, app_state).await),
+        (&Method::POST, "/task/comment") => wrap_error(post_task_comment(request, app_state).await),
         _ => {
             let mut response = Response::new(Body::empty());
             *response.status_mut() = StatusCode::NOT_FOUND;
