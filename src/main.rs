@@ -48,10 +48,30 @@ struct Project {
     next_task_id: usize,
 }
 
+impl Project {
+    fn find_task_by_id(&self, id: usize) -> Result<&Task, Box<dyn std::error::Error>> {
+        let task_index = self
+            .tasks
+            .binary_search_by_key(&id, |task| task.id)
+            .map_err(|_| format!("Could not find task with ID: {}", id))?;
+        Ok(&self.tasks[task_index])
+    }
+}
+
 #[derive(Default, Serialize, Deserialize, Debug)]
 struct Database {
     projects: Vec<Project>,
     next_project_id: usize,
+}
+
+impl Database {
+    fn find_project_by_id(&self, id: usize) -> Result<&Project, Box<dyn std::error::Error>> {
+        let project_index = self
+            .projects
+            .binary_search_by_key(&id, |project| project.id)
+            .map_err(|_| format!("Could not find project with ID: {}", id))?;
+        Ok(&self.projects[project_index])
+    }
 }
 
 struct AppState {
@@ -106,7 +126,7 @@ async fn list_projects(
 }
 
 #[derive(Deserialize, Debug)]
-struct ListTasksRequest {
+struct ProjectDetailsRequest {
     project_id: usize,
 }
 
@@ -122,19 +142,11 @@ async fn project_details(
     app_state: Arc<Mutex<AppState>>,
 ) -> Result<Response<Body>, Box<dyn std::error::Error>> {
     let full_body = hyper::body::to_bytes(request.into_body()).await?;
-    let list_tasks_request = serde_json::from_slice::<ListTasksRequest>(&full_body)?;
+    let project_details_request = serde_json::from_slice::<ProjectDetailsRequest>(&full_body)?;
     let app = app_state.lock().unwrap();
-    let project_index = app
+    let project = app
         .database
-        .projects
-        .binary_search_by_key(&list_tasks_request.project_id, |project| project.id)
-        .map_err(|_| {
-            format!(
-                "Could not find project with ID: {}",
-                list_tasks_request.project_id
-            )
-        })?;
-    let project = &app.database.projects[project_index];
+        .find_project_by_id(project_details_request.project_id)?;
     let tasks = project
         .tasks
         .iter()
@@ -150,8 +162,29 @@ async fn project_details(
             "id": project.id,
             "description": project.description.clone(),
             "tasks": tasks
-        }).to_string(),
+        })
+        .to_string(),
     )))
+}
+
+#[derive(Deserialize, Debug)]
+struct TaskDetailsRequest {
+    project_id: usize,
+    task_id: usize,
+}
+
+async fn task_details(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let task_details_request = serde_json::from_slice::<TaskDetailsRequest>(&full_body)?;
+    let app = app_state.lock().unwrap();
+    let project = app
+        .database
+        .find_project_by_id(task_details_request.project_id)?;
+    let task = project.find_task_by_id(task_details_request.task_id)?;
+    Ok(Response::new(Body::from(serde_json::to_string(task)?)))
 }
 
 fn wrap_error(
@@ -180,6 +213,7 @@ async fn request_handler(
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/list_projects") => wrap_error(list_projects(request, app_state).await),
         (&Method::GET, "/project_details") => wrap_error(project_details(request, app_state).await),
+        (&Method::GET, "/task_details") => wrap_error(task_details(request, app_state).await),
         _ => {
             let mut response = Response::new(Body::empty());
             *response.status_mut() = StatusCode::NOT_FOUND;
