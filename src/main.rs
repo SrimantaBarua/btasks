@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -37,6 +38,7 @@ struct Task {
     id: usize,
     log: Vec<LogEntry>,
     state: State,
+    dependencies: HashSet<usize>,
 }
 
 impl Task {
@@ -84,6 +86,7 @@ impl Project {
             id,
             state: State::Todo,
             log: Vec::new(),
+            dependencies: HashSet::new(),
         };
         self.tasks.push(task);
         id
@@ -428,6 +431,39 @@ async fn post_task_description(
     )))
 }
 
+#[derive(Deserialize, Debug)]
+enum DependencyAction {
+    Add,
+    Remove,
+}
+
+#[derive(Deserialize, Debug)]
+struct PostTaskDependencyRequest {
+    project_id: usize,
+    task_id: usize,
+    dependency: usize,
+    action: DependencyAction,
+}
+
+async fn post_task_dependency(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let request = serde_json::from_slice::<PostTaskDependencyRequest>(&full_body)?;
+    let mut app = app_state.lock().unwrap();
+    let project = app.database.find_project_by_id_mut(request.project_id)?;
+    let task = project.find_task_by_id_mut(request.task_id)?;
+    match request.action {
+        DependencyAction::Add => task.dependencies.remove(&request.dependency),
+        DependencyAction::Remove => task.dependencies.insert(request.dependency),
+    };
+    app.flush()?;
+    Ok(Response::new(Body::from(
+        json!({"status": 200, "description": "OK"}).to_string(),
+    )))
+}
+
 fn wrap_error(
     inner: Result<Response<Body>, Box<dyn std::error::Error>>,
 ) -> Result<Response<Body>, hyper::Error> {
@@ -466,6 +502,9 @@ async fn request_handler(
         (&Method::POST, "/task/title") => wrap_error(post_task_title(request, app_state).await),
         (&Method::POST, "/task/description") => {
             wrap_error(post_task_description(request, app_state).await)
+        }
+        (&Method::POST, "/task/dependency") => {
+            wrap_error(post_task_dependency(request, app_state).await)
         }
         (&Method::POST, "/task/state") => wrap_error(post_task_state(request, app_state).await),
         (&Method::POST, "/task/comment") => wrap_error(post_task_comment(request, app_state).await),
