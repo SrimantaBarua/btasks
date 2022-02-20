@@ -74,6 +74,20 @@ impl Project {
             .map_err(|_| format!("Could not find task with ID: {}", id))?;
         Ok(&mut self.tasks[task_index])
     }
+
+    fn create_task(&mut self, title: String, description: String) -> usize {
+        let id = self.next_task_id;
+        self.next_task_id += 1;
+        let task = Task {
+            title,
+            description,
+            id,
+            state: State::Todo,
+            log: Vec::new(),
+        };
+        self.tasks.push(task);
+        id
+    }
 }
 
 #[derive(Default, Serialize, Deserialize, Debug)]
@@ -100,6 +114,20 @@ impl Database {
             .binary_search_by_key(&id, |project| project.id)
             .map_err(|_| format!("Could not find project with ID: {}", id))?;
         Ok(&mut self.projects[project_index])
+    }
+
+    fn create_project(&mut self, name: String, description: String) -> usize {
+        let id = self.next_project_id;
+        self.next_project_id += 1;
+        let project = Project {
+            name,
+            description,
+            id,
+            tasks: Vec::new(),
+            next_task_id: 0,
+        };
+        self.projects.push(project);
+        id
     }
 }
 
@@ -205,6 +233,69 @@ async fn project_details(
 }
 
 #[derive(Deserialize, Debug)]
+struct PostProjectCreateRequest {
+    name: String,
+    description: String,
+}
+
+async fn post_project_create(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let request = serde_json::from_slice::<PostProjectCreateRequest>(&full_body)?;
+    let mut app = app_state.lock().unwrap();
+    let project_id = app
+        .database
+        .create_project(request.name, request.description);
+    app.flush()?;
+    let project = app.database.find_project_by_id(project_id)?;
+    Ok(Response::new(Body::from(serde_json::to_string(project)?)))
+}
+
+#[derive(Deserialize, Debug)]
+struct PostProjectNameRequest {
+    project_id: usize,
+    name: String,
+}
+
+async fn post_project_name(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let request = serde_json::from_slice::<PostProjectNameRequest>(&full_body)?;
+    let mut app = app_state.lock().unwrap();
+    let project = app.database.find_project_by_id_mut(request.project_id)?;
+    project.name = request.name;
+    app.flush()?;
+    Ok(Response::new(Body::from(
+        json!({"status": 200, "description": "OK"}).to_string(),
+    )))
+}
+
+#[derive(Deserialize, Debug)]
+struct PostProjectDescriptionRequest {
+    project_id: usize,
+    description: String,
+}
+
+async fn post_project_description(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let request = serde_json::from_slice::<PostProjectDescriptionRequest>(&full_body)?;
+    let mut app = app_state.lock().unwrap();
+    let project = app.database.find_project_by_id_mut(request.project_id)?;
+    project.description = request.description;
+    app.flush()?;
+    Ok(Response::new(Body::from(
+        json!({"status": 200, "description": "OK"}).to_string(),
+    )))
+}
+
+#[derive(Deserialize, Debug)]
 struct TaskDetailsRequest {
     project_id: usize,
     task_id: usize,
@@ -269,6 +360,74 @@ async fn post_task_comment(
     )))
 }
 
+#[derive(Deserialize, Debug)]
+struct PostTaskCreateRequest {
+    project_id: usize,
+    title: String,
+    description: String,
+}
+
+async fn post_task_create(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let request = serde_json::from_slice::<PostTaskCreateRequest>(&full_body)?;
+    let mut app = app_state.lock().unwrap();
+    let project = app.database.find_project_by_id_mut(request.project_id)?;
+    let task_id = project.create_task(request.title, request.description);
+    app.flush()?;
+    let project = app.database.find_project_by_id(request.project_id)?;
+    let task = project.find_task_by_id(task_id)?;
+    Ok(Response::new(Body::from(serde_json::to_string(task)?)))
+}
+
+#[derive(Deserialize, Debug)]
+struct PostTaskTitleRequest {
+    project_id: usize,
+    task_id: usize,
+    title: String,
+}
+
+async fn post_task_title(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let request = serde_json::from_slice::<PostTaskTitleRequest>(&full_body)?;
+    let mut app = app_state.lock().unwrap();
+    let project = app.database.find_project_by_id_mut(request.project_id)?;
+    let task = project.find_task_by_id_mut(request.task_id)?;
+    task.title = request.title;
+    app.flush()?;
+    Ok(Response::new(Body::from(
+        json!({"status": 200, "description": "OK"}).to_string(),
+    )))
+}
+
+#[derive(Deserialize, Debug)]
+struct PostTaskDescriptionRequest {
+    project_id: usize,
+    task_id: usize,
+    description: String,
+}
+
+async fn post_task_description(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let request = serde_json::from_slice::<PostTaskDescriptionRequest>(&full_body)?;
+    let mut app = app_state.lock().unwrap();
+    let project = app.database.find_project_by_id_mut(request.project_id)?;
+    let task = project.find_task_by_id_mut(request.task_id)?;
+    task.description = request.description;
+    app.flush()?;
+    Ok(Response::new(Body::from(
+        json!({"status": 200, "description": "OK"}).to_string(),
+    )))
+}
+
 fn wrap_error(
     inner: Result<Response<Body>, Box<dyn std::error::Error>>,
 ) -> Result<Response<Body>, hyper::Error> {
@@ -296,6 +455,18 @@ async fn request_handler(
         (&Method::GET, "/") => wrap_error(list_projects(request, app_state).await),
         (&Method::GET, "/project") => wrap_error(project_details(request, app_state).await),
         (&Method::GET, "/task") => wrap_error(task_details(request, app_state).await),
+        (&Method::POST, "/project/create") => {
+            wrap_error(post_project_create(request, app_state).await)
+        }
+        (&Method::POST, "/project/name") => wrap_error(post_project_name(request, app_state).await),
+        (&Method::POST, "/project/description") => {
+            wrap_error(post_project_description(request, app_state).await)
+        }
+        (&Method::POST, "/task/create") => wrap_error(post_task_create(request, app_state).await),
+        (&Method::POST, "/task/title") => wrap_error(post_task_title(request, app_state).await),
+        (&Method::POST, "/task/description") => {
+            wrap_error(post_task_description(request, app_state).await)
+        }
         (&Method::POST, "/task/state") => wrap_error(post_task_state(request, app_state).await),
         (&Method::POST, "/task/comment") => wrap_error(post_task_comment(request, app_state).await),
         _ => {
