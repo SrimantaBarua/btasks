@@ -6,8 +6,9 @@ use std::sync::{Arc, Mutex};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 enum State {
     Todo,
     InProgress,
@@ -16,36 +17,41 @@ enum State {
     Done,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 enum LogEntryType {
     Opened,
     Comment(String),
     StateChangedTo(State),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct LogEntry {
     #[serde(with = "chrono::serde::ts_seconds")]
     timestamp: chrono::DateTime<chrono::Utc>,
     entry_type: LogEntryType,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Task {
     title: String,
     description: String,
+    id: usize,
     log: Vec<LogEntry>,
+    state: State,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Project {
     name: String,
+    id: usize,
     tasks: Vec<Task>,
+    next_task_id: usize,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Debug)]
 struct Database {
     projects: Vec<Project>,
+    next_project_id: usize,
 }
 
 struct AppState {
@@ -55,6 +61,7 @@ struct AppState {
 impl AppState {
     fn initialize() -> AppState {
         let database = Self::load_database().unwrap_or_default();
+        println!("database: {:#?}", database);
         AppState { database }
     }
 
@@ -73,22 +80,92 @@ impl AppState {
     }
 }
 
+#[derive(Serialize, Debug)]
+struct ProjectSummary {
+    id: usize,
+    name: String,
+}
+
 async fn list_projects(
     _request: Request<Body>,
     app_state: Arc<Mutex<AppState>>,
-) -> Result<Response<Body>, hyper::Error> {
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
     let app = app_state.lock().unwrap();
-    let names = app
+    let projects = app
         .database
         .projects
         .iter()
-        .enumerate()
-        .map(|(index, project)| (index, project.name.clone()))
+        .map(|project| ProjectSummary {
+            id: project.id,
+            name: project.name.clone(),
+        })
         .collect::<Vec<_>>();
-    Ok(Response::new(Body::from(format!(
-        "{{\"projects\":{}}}",
-        serde_json::to_string(&names).expect("Could not format names")
-    ))))
+    Ok(Response::new(Body::from(
+        json!({ "projects": projects }).to_string(),
+    )))
+}
+
+#[derive(Deserialize, Debug)]
+struct ListTasksRequest {
+    project_id: usize,
+}
+
+#[derive(Serialize, Debug)]
+struct TaskSummary {
+    id: usize,
+    title: String,
+    state: State,
+}
+
+async fn list_tasks(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let list_tasks_request = serde_json::from_slice::<ListTasksRequest>(&full_body)?;
+    let app = app_state.lock().unwrap();
+    let project_index = app
+        .database
+        .projects
+        .binary_search_by_key(&list_tasks_request.project_id, |project| project.id)
+        .map_err(|_| {
+            format!(
+                "Could not find project with ID: {}",
+                list_tasks_request.project_id
+            )
+        })?;
+    let project = &app.database.projects[project_index];
+    let tasks = project
+        .tasks
+        .iter()
+        .map(|task| TaskSummary {
+            id: task.id,
+            title: task.title.clone(),
+            state: task.state,
+        })
+        .collect::<Vec<_>>();
+    Ok(Response::new(Body::from(
+        json!({ "tasks": tasks }).to_string(),
+    )))
+}
+
+fn wrap_error(
+    inner: Result<Response<Body>, Box<dyn std::error::Error>>,
+) -> Result<Response<Body>, hyper::Error> {
+    match inner {
+        Ok(response) => Ok(response),
+        Err(error) => {
+            let response_body = json!({
+                "status": 500,
+                "description": error.to_string(),
+            })
+            .to_string();
+            Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(response_body))
+                .expect("Failed to build request"))
+        }
+    }
 }
 
 async fn request_handler(
@@ -96,7 +173,8 @@ async fn request_handler(
     app_state: Arc<Mutex<AppState>>,
 ) -> Result<Response<Body>, hyper::Error> {
     match (request.method(), request.uri().path()) {
-        (&Method::GET, "/list_projects") => list_projects(request, app_state).await,
+        (&Method::GET, "/list_projects") => wrap_error(list_projects(request, app_state).await),
+        (&Method::GET, "/list_tasks") => wrap_error(list_tasks(request, app_state).await),
         _ => {
             let mut response = Response::new(Body::empty());
             *response.status_mut() = StatusCode::NOT_FOUND;
