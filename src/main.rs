@@ -1,3 +1,8 @@
+use std::net::SocketAddr;
+
+use futures::TryStreamExt;
+use hyper::service::{make_service_fn, service_fn};
+use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -45,69 +50,45 @@ impl AppState {
     }
 }
 
-fn main() {
-    if let Err(e) = actual_main() {
-        eprintln!("ERROR: {}", e);
-    }
-    crossterm::terminal::disable_raw_mode().expect("Couldn't disable raw mode");
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Could not set up Ctrl+C signal handler")
 }
 
-fn actual_main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut app = AppState::initialize();
-
-    crossterm::terminal::enable_raw_mode().expect("Couldn't put terminal in raw mode");
-
-    let (event_tx, event_rx) = std::sync::mpsc::channel();
-
-    // Spawn event reader thread
-    std::thread::spawn(move || loop {
-        event_tx
-            .send(crossterm::event::read().expect("Failed to read event"))
-            .unwrap();
-    });
-
-    let mut terminal = tui::Terminal::new(tui::backend::CrosstermBackend::new(std::io::stdout()))?;
-    terminal.clear()?;
-
-    loop {
-        terminal.draw(|rect| {
-            draw_ui(rect, &app);
-        });
-        match event_rx.recv().unwrap() {
-            crossterm::event::Event::Key(event) => match event.code {
-                crossterm::event::KeyCode::Esc => break,
-                _ => {}
-            },
-            _ => {}
+async fn echo(request: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    let mut response = Response::new(Body::empty());
+    match (request.method(), request.uri().path()) {
+        (&Method::GET, "/") => *response.body_mut() = Body::from("Try POSTing data to /echo"),
+        (&Method::POST, "/echo") => *response.body_mut() = request.into_body(),
+        (&Method::POST, "/echo/reverse") => {
+            let full_body = hyper::body::to_bytes(request.into_body()).await?;
+            let reversed = full_body.iter().rev().cloned().collect::<Vec<_>>();
+            *response.body_mut() = reversed.into();
         }
+        (&Method::POST, "/echo/uppercase") => {
+            let mapping = request.into_body().map_ok(|chunk| {
+                chunk
+                    .iter()
+                    .map(|byte| byte.to_ascii_uppercase())
+                    .collect::<Vec<_>>()
+            });
+            *response.body_mut() = Body::wrap_stream(mapping);
+        }
+        _ => *response.status_mut() = StatusCode::NOT_FOUND,
     }
-
-    terminal.clear()?;
-    Ok(())
+    Ok(response)
 }
 
-fn draw_ui<B>(rect: &mut tui::Frame<B>, app: &AppState)
-where
-    B: tui::backend::Backend,
-{
-    let size = rect.size();
-    // Vertical layout
-    let chunks = tui::layout::Layout::default()
-        .direction(tui::layout::Direction::Horizontal)
-        .constraints(
-            [
-                tui::layout::Constraint::Percentage(20),
-                tui::layout::Constraint::Percentage(80),
-            ]
-            .as_ref(),
-        )
-        .split(size);
-
-    let left_sidebar = tui::widgets::Block::default()
-        .title("Projects")
-        .borders(tui::widgets::Borders::ALL)
-        .border_style(tui::style::Style::default().fg(tui::style::Color::White))
-        .style(tui::style::Style::default().bg(tui::style::Color::Black));
-
-    rect.render_widget(left_sidebar, chunks[0]);
+#[tokio::main]
+async fn main() {
+    let addr = SocketAddr::from(([127, 0, 0, 1], 12345));
+    let make_echo_service =
+        make_service_fn(|_conn| async { Ok::<_, hyper::Error>(service_fn(echo)) });
+    let server = Server::bind(&addr)
+        .serve(make_echo_service)
+        .with_graceful_shutdown(shutdown_signal());
+    if let Err(e) = server.await {
+        eprintln!("server error: {}", e);
+    }
 }
