@@ -141,7 +141,6 @@ struct AppState {
 impl AppState {
     fn initialize() -> AppState {
         let database = Self::load_database().unwrap_or_default();
-        println!("database: {:#?}", database);
         AppState { database }
     }
 
@@ -165,7 +164,6 @@ impl AppState {
         let mut data_dir = dirs::data_dir().expect("Could not get data directory");
         data_dir.push("btasks");
         data_dir.push("database.json");
-        eprintln!("Database path: {:?}", data_dir);
         data_dir
     }
 }
@@ -252,8 +250,9 @@ async fn post_project_create(
         .database
         .create_project(request.name, request.description);
     app.flush()?;
-    let project = app.database.find_project_by_id(project_id)?;
-    Ok(Response::new(Body::from(serde_json::to_string(project)?)))
+    Ok(Response::new(Body::from(
+        json!({ "project_id": project_id }).to_string(),
+    )))
 }
 
 #[derive(Deserialize, Debug)]
@@ -380,9 +379,9 @@ async fn post_task_create(
     let project = app.database.find_project_by_id_mut(request.project_id)?;
     let task_id = project.create_task(request.title, request.description);
     app.flush()?;
-    let project = app.database.find_project_by_id(request.project_id)?;
-    let task = project.find_task_by_id(task_id)?;
-    Ok(Response::new(Body::from(serde_json::to_string(task)?)))
+    Ok(Response::new(Body::from(
+        json!({ "task_id": task_id }).to_string(),
+    )))
 }
 
 #[derive(Deserialize, Debug)]
@@ -455,8 +454,8 @@ async fn post_task_dependency(
     let project = app.database.find_project_by_id_mut(request.project_id)?;
     let task = project.find_task_by_id_mut(request.task_id)?;
     match request.action {
-        DependencyAction::Add => task.dependencies.remove(&request.dependency),
-        DependencyAction::Remove => task.dependencies.insert(request.dependency),
+        DependencyAction::Add => task.dependencies.insert(request.dependency),
+        DependencyAction::Remove => task.dependencies.remove(&request.dependency),
     };
     app.flush()?;
     Ok(Response::new(Body::from(
@@ -516,10 +515,21 @@ async fn request_handler(
     }
 }
 
+// Parses arguments and return port to listen on
+fn parse_args() -> u16 {
+    let args = std::env::args().collect::<Vec<_>>();
+    if args.len() != 2 {
+        eprintln!("ERROR: Usage {} PORT", args[0]);
+        std::process::exit(1);
+    }
+    args[1].parse().expect("Could not parse port")
+}
+
 #[tokio::main]
 async fn main() {
+    let port = parse_args();
     let app_state = Arc::new(Mutex::new(AppState::initialize()));
-    let addr = SocketAddr::from(([127, 0, 0, 1], 12345));
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let server = Server::bind(&addr)
         .serve(make_service_fn(move |_conn| {
             let app_state = app_state.clone();
@@ -534,6 +544,7 @@ async fn main() {
                 .await
                 .expect("Could not set up Ctrl+C signal handler")
         });
+    eprintln!("* Listening on port {}", port);
     if let Err(e) = server.await {
         eprintln!("server error: {}", e);
     }
