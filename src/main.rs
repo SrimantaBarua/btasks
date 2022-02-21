@@ -91,6 +91,15 @@ impl Project {
         self.tasks.push(task);
         id
     }
+
+    fn remove_task(&mut self, task_id: usize) -> Result<(), Box<dyn std::error::Error>> {
+        let task_index = self
+            .tasks
+            .binary_search_by_key(&task_id, |task| task.id)
+            .map_err(|_| format!("Could not find task with ID: {}", task_id))?;
+        self.tasks.remove(task_index);
+        Ok(())
+    }
 }
 
 #[derive(Default, Serialize, Deserialize, Debug)]
@@ -131,6 +140,15 @@ impl Database {
         };
         self.projects.push(project);
         id
+    }
+
+    fn remove_project(&mut self, project_id: usize) -> Result<(), Box<dyn std::error::Error>> {
+        let project_index = self
+            .projects
+            .binary_search_by_key(&project_id, |project| project.id)
+            .map_err(|_| format!("Could not find project with ID: {}", project_id))?;
+        self.projects.remove(project_index);
+        Ok(())
     }
 }
 
@@ -256,6 +274,25 @@ async fn post_project_create(
 }
 
 #[derive(Deserialize, Debug)]
+struct PostProjectDeleteRequest {
+    project_id: usize,
+}
+
+async fn post_project_delete(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let request = serde_json::from_slice::<PostProjectDeleteRequest>(&full_body)?;
+    let mut app = app_state.lock().unwrap();
+    app.database.remove_project(request.project_id)?;
+    app.flush()?;
+    Ok(Response::new(Body::from(
+        json!({"status": 200, "description": "OK"}).to_string(),
+    )))
+}
+
+#[derive(Deserialize, Debug)]
 struct PostProjectNameRequest {
     project_id: usize,
     name: String,
@@ -333,6 +370,27 @@ async fn post_task_state(
     let task = project.find_task_by_id_mut(request.task_id)?;
     task.new_log_entry(LogEntryType::StateChangedTo(request.new_state));
     task.state = request.new_state;
+    app.flush()?;
+    Ok(Response::new(Body::from(
+        json!({"status": 200, "description": "OK"}).to_string(),
+    )))
+}
+
+#[derive(Deserialize, Debug)]
+struct PostTaskDeleteRequest {
+    project_id: usize,
+    task_id: usize,
+}
+
+async fn post_task_delete(
+    request: Request<Body>,
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<Response<Body>, Box<dyn std::error::Error>> {
+    let full_body = hyper::body::to_bytes(request.into_body()).await?;
+    let request = serde_json::from_slice::<PostTaskDeleteRequest>(&full_body)?;
+    let mut app = app_state.lock().unwrap();
+    let project = app.database.find_project_by_id_mut(request.project_id)?;
+    project.remove_task(request.task_id)?;
     app.flush()?;
     Ok(Response::new(Body::from(
         json!({"status": 200, "description": "OK"}).to_string(),
@@ -493,11 +551,15 @@ async fn request_handler(
         (&Method::POST, "/project/create") => {
             wrap_error(post_project_create(request, app_state).await)
         }
+        (&Method::POST, "/project/delete") => {
+            wrap_error(post_project_delete(request, app_state).await)
+        }
         (&Method::POST, "/project/name") => wrap_error(post_project_name(request, app_state).await),
         (&Method::POST, "/project/description") => {
             wrap_error(post_project_description(request, app_state).await)
         }
         (&Method::POST, "/task/create") => wrap_error(post_task_create(request, app_state).await),
+        (&Method::POST, "/task/delete") => wrap_error(post_task_delete(request, app_state).await),
         (&Method::POST, "/task/title") => wrap_error(post_task_title(request, app_state).await),
         (&Method::POST, "/task/description") => {
             wrap_error(post_task_description(request, app_state).await)

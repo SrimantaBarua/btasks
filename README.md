@@ -13,10 +13,12 @@ Note that this API has (next to) no error reporting at all. For clearly wrong re
 - [List projects](#list-projects) : `GET /`
 - [Project details](#project-details) : `GET /project`
 - [Create project](#create-project) : `POST /project/create`
+- [Delete project](#delete-project) : `POST /project/delete`
 - [Rename project](#rename-project) : `POST /project/name`
 - [Set project description](#set-project-description) : `POST /project/description`
 - [Task details](#task-details) : `GET /task`
 - [Create task](#create-tas) : `POST /task/create`
+- [Delete task](#delete-task) : `POST /task/delete`
 - [Set task title](#set-task-title) : `POST /task/title`
 - [Set task description](#set-task-description) : `POST /task/description`
 - [Add/remove dependency](#addremove-dependency) : `POST /task/dependency`
@@ -82,6 +84,20 @@ Success response -
 ```json
 {
   "project_id" : 3
+}
+```
+
+### Delete project
+
+- URL : `/project/delete`
+- Method : `POST`
+- Body : `{ "project_id" : 0 }`
+
+Success response -
+```json
+{
+  "status" : 200,
+  "description" : "OK"
 }
 ```
 
@@ -154,6 +170,20 @@ Success response -
 ```json
 {
   "task_id" : 2
+}
+```
+
+### Delete task
+
+- URL : `/task/delete`
+- Method : `POST`
+- Body : `{ "project_id" : 0, "task_id" : 0 }`
+
+Success response -
+```json
+{
+  "status" : 200,
+  "description" : "OK"
 }
 ```
 
