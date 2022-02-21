@@ -1,0 +1,22 @@
+{
+  "name": "btasks",
+  "version": "0.1.0",
+  "description": "Simple task management app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SrimantaBarua/btasks.git"
+  },
+  "author": "Srimanta Barua <srimanta.barua1@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/SrimantaBarua/btasks/issues"
+  },
+  "homepage": "https://github.com/SrimantaBarua/btasks#readme",
+  "dependencies": {
+    "electron": "^17.0.1"
+  }
+}

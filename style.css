@@ -1,0 +1,74 @@
+* {
+    margin: 0;
+    padding: 0;
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 12px;
+}
+
+#main {
+    display: flex;
+    flex-flow: row nowrap;
+}
+
+#projects {
+    overflow-y: scroll;
+    top: 0;
+    bottom: 0;
+    padding-top: 1em;
+    padding-bottom: 1em;
+    background-color: #227788;
+    list-style-type: none;
+}
+
+.sidebar-project {
+    color: white;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 0.5em;
+    padding-right: 0.5em;
+}
+
+.sidebar-project:hover {
+    background-color: #22aaff;
+}
+
+#tasks {
+    overflow-y: scroll;
+    top: 0;
+    bottom: 0;
+    padding-top: 1em;
+    padding-bottom: 1em;
+    background-color: #bbbbbb;
+    list-style-type: none;
+}
+
+.sidebar-task {
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 0.5em;
+    padding-right: 0.5em;
+}
+
+.sidebar-task:hover {
+    background-color: #eeeeee;
+}
+
+#content {
+    padding: 10px;
+}
+
+#project-content {
+    display: flex;
+    flex-flow: column nowrap;
+}
+
+#project-name {
+}
+
+#project-description {
+}
+
+#task-content {
+    display: flex;
+    flex-flow: column nowrap;
+}
