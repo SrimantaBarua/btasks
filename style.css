@@ -2,7 +2,7 @@
     margin: 0;
     padding: 0;
     font-family: Helvetica, Arial, sans-serif;
-    font-size: 12px;
+    font-size: 14px;
 }
 
 #main {
@@ -14,22 +14,29 @@
     overflow-y: scroll;
     top: 0;
     bottom: 0;
-    padding-top: 1em;
-    padding-bottom: 1em;
-    background-color: #227788;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    padding-left: 6px;
+    padding-right: 6px;
+    background-color: #4287f5;
     list-style-type: none;
+    height: 100vh;
+    flex: 1;
 }
 
 .sidebar-project {
-    color: white;
+    color: #dfe3e8;
     padding-top: 3px;
     padding-bottom: 3px;
-    padding-left: 0.5em;
-    padding-right: 0.5em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .sidebar-project:hover {
-    background-color: #22aaff;
+    color: #ffffff;
+    background-color: #4b9beb;
+    cursor: pointer;
 }
 
 #tasks {
@@ -38,34 +45,95 @@
     bottom: 0;
     padding-top: 1em;
     padding-bottom: 1em;
-    background-color: #bbbbbb;
+    padding-left: 0.5em;
+    padding-right: 0.5em;
+    background-color: #dfe3e8;
     list-style-type: none;
+    height: 100vh;
+    flex: 2;
 }
 
 .sidebar-task {
+    color: #393c40;
     padding-top: 3px;
     padding-bottom: 3px;
-    padding-left: 0.5em;
-    padding-right: 0.5em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .sidebar-task:hover {
-    background-color: #eeeeee;
+    color: #000000;
+    background-color: #f0f3f7;
+    cursor: pointer;
 }
 
 #content {
     padding: 10px;
+    flex: 9;
+}
+
+#content h1 {
+    font-size: 2em;
+    font-weight: normal;
+    border-bottom: 1px solid #000000;
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+#content h2 {
+    font-size: 1.8em;
+    font-weight: normal;
+    border-bottom: 1px solid #000000;
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+#content h3 {
+    font-size: 1.6em;
+    font-weight: normal;
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+#content h4 {
+    font-size: 1.4em;
+    font-weight: bold;
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+#content h5 {
+    font-size: 1.2em;
+    font-weight: bold;
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+#content h6 {
+    font-size: 1em;
+    font-weight: bold;
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+#content p {
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+#content code {
+    font-family: "SF Mono", Consolas, monospace;
+    background-color: #e6e8eb;
+    color: #393c40;
+    margin-top: 12px;
+    margin-bottom: 12px;
+    padding: 4px;
 }
 
 #project-content {
     display: flex;
     flex-flow: column nowrap;
-}
-
-#project-name {
-}
-
-#project-description {
 }
 
 #task-content {
