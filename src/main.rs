@@ -521,18 +521,6 @@ async fn post_task_dependency(
     )))
 }
 
-async fn post_markdown_to_html(
-    request: Request<Body>,
-    _app_state: Arc<Mutex<AppState>>,
-) -> Result<Response<Body>, Box<dyn std::error::Error>> {
-    let full_body = String::from_utf8(hyper::body::to_bytes(request.into_body()).await?.to_vec())?;
-    let options = pulldown_cmark::Options::all();
-    let parser = pulldown_cmark::Parser::new_ext(&full_body, options);
-    let mut html_output = String::new();
-    pulldown_cmark::html::push_html(&mut html_output, parser);
-    Ok(Response::new(Body::from(html_output)))
-}
-
 fn wrap_error(
     inner: Result<Response<Body>, Box<dyn std::error::Error>>,
 ) -> Result<Response<Body>, hyper::Error> {
@@ -581,9 +569,6 @@ async fn request_handler(
         }
         (&Method::POST, "/task/state") => wrap_error(post_task_state(request, app_state).await),
         (&Method::POST, "/task/comment") => wrap_error(post_task_comment(request, app_state).await),
-        (&Method::POST, "/markdown/html") => {
-            wrap_error(post_markdown_to_html(request, app_state).await)
-        }
         _ => {
             let mut response = Response::new(Body::empty());
             *response.status_mut() = StatusCode::NOT_FOUND;
