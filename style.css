@@ -16,8 +16,6 @@
     bottom: 0;
     padding-top: 12px;
     padding-bottom: 12px;
-    padding-left: 6px;
-    padding-right: 6px;
     background-color: #4287f5;
     list-style-type: none;
     height: 100vh;
@@ -28,6 +26,8 @@
     color: #dfe3e8;
     padding-top: 3px;
     padding-bottom: 3px;
+    padding-left: 6px;
+    padding-right: 6px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -45,8 +45,6 @@
     bottom: 0;
     padding-top: 1em;
     padding-bottom: 1em;
-    padding-left: 0.5em;
-    padding-right: 0.5em;
     background-color: #dfe3e8;
     list-style-type: none;
     height: 100vh;
@@ -57,6 +55,8 @@
     color: #393c40;
     padding-top: 3px;
     padding-bottom: 3px;
+    padding-left: 6px;
+    padding-right: 6px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
